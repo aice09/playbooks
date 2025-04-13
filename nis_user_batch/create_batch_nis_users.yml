@@ -1,0 +1,23 @@
+---
+- name: Batch NIS user creation from external file
+  hosts: nis_servers
+  become: yes
+
+  vars_files:
+    - users.yml  # This file contains the nis_users list
+
+  vars:
+    email_notify: "admin@example.com"
+
+  tasks:
+    - name: Loop through each NIS user
+      include_tasks: create_single_user.yml
+      loop: "{{ nis_users }}"
+      loop_control:
+        loop_var: user
+
+    - name: Rebuild NIS maps if any new users were added
+      command: make
+      args:
+        chdir: /var/yp
+      when: new_users is defined and new_users | length > 0
