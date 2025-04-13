@@ -1,0 +1,62 @@
+---
+- name: Add users with root privileges (cross-platform)
+  hosts: all
+  become: true
+  vars:
+    users:
+      - johndoe
+      - alice
+      - bob
+
+  tasks:
+    - name: Ensure sudo is installed
+      package:
+        name: sudo
+        state: present
+
+    - name: Determine correct admin group (sudo or wheel)
+      set_fact:
+        admin_group: "{{ 'sudo' if ansible_os_family in ['Debian', 'Ubuntu'] else 'wheel' }}"
+
+    - name: Generate random passwords for users
+      set_fact:
+        user_credentials: >-
+          {{
+            user_credentials | default({}) | combine({
+              item: {
+                'password': lookup('password', '/dev/null length=12 chars=ascii_letters,digits'),
+                'password_hash': password_hash(lookup('password', '/dev/null length=12 chars=ascii_letters,digits'), 'sha512')
+              }
+            })
+          }}
+      loop: "{{ users }}"
+
+    - name: Create users with generated password
+      user:
+        name: "{{ item }}"
+        password: "{{ user_credentials[item].password_hash }}"
+        shell: /bin/bash
+        state: present
+        create_home: yes
+      loop: "{{ users }}"
+
+    - name: Add users to admin group
+      user:
+        name: "{{ item }}"
+        groups: "{{ admin_group }}"
+        append: yes
+      loop: "{{ users }}"
+
+    - name: Add users to sudoers with NOPASSWD
+      lineinfile:
+        path: /etc/sudoers
+        regexp: "^{{ item }} "
+        line: "{{ item }} ALL=(ALL) NOPASSWD:ALL"
+        validate: '/usr/sbin/visudo -cf %s'
+        create: yes
+      loop: "{{ users }}"
+
+    - name: Show generated credentials
+      debug:
+        msg: "User {{ item }} created with password: {{ user_credentials[item].password }}"
+      loop: "{{ users }}"
