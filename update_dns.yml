@@ -1,0 +1,47 @@
+---
+- name: Update DNS server settings
+  hosts: all
+  become: yes
+  vars:
+    # Customize DNS servers here or override per host/group
+    dns_servers:
+      - "8.8.8.8"
+      - "8.8.4.4"
+
+  tasks:
+    - name: Backup current resolv.conf
+      copy:
+        src: /etc/resolv.conf
+        dest: /etc/resolv.conf.bak
+        remote_src: yes
+        backup: yes
+
+    - name: Set new DNS servers in /etc/resolv.conf
+      copy:
+        dest: /etc/resolv.conf
+        content: |
+          {% for dns in dns_servers %}
+          nameserver {{ dns }}
+          {% endfor %}
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Display updated resolv.conf
+      command: cat /etc/resolv.conf
+      register: resolv_output
+      changed_when: false
+
+    - name: Show DNS config
+      debug:
+        var: resolv_output.stdout_lines
+
+    - name: Optional - test DNS resolution
+      command: ping -c 1 google.com
+      register: ping_result
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Show DNS test result
+      debug:
+        var: ping_result.stdout_lines
