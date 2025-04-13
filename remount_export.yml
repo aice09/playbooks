@@ -1,0 +1,68 @@
+---
+- name: Remount export storage on CentOS 6 and 7
+  hosts: centos
+  become: yes
+  vars:
+    export_mount_point: "/export"
+    export_nfs_server: "10.161.144.67"
+    export_nfs_path: "/vol/vol11"
+    fstab_entry: "10.161.144.67:/vol/vol11 /export nfs defaults 0 0"
+
+  tasks:
+
+    - name: Check current mount points
+      shell: |
+        echo "=== findmnt ==="
+        findmnt
+        echo "=== /proc/mounts ==="
+        cat /proc/mounts
+        echo "=== mount -l ==="
+        mount -l
+        echo "=== df ==="
+        df -a -T -h
+      register: mount_check
+      changed_when: false
+
+    - name: Show current mount info
+      debug:
+        var: mount_check.stdout_lines
+
+    - name: Unmount export directory if mounted
+      mount:
+        path: "{{ export_mount_point }}"
+        state: unmounted
+      ignore_errors: yes
+
+    - name: Ensure export entry is in /etc/fstab
+      lineinfile:
+        path: /etc/fstab
+        regexp: '^.*:/vol/vol11\s+/export\s+'
+        line: "{{ fstab_entry }}"
+        state: present
+        backup: yes
+
+    - name: Mount all from fstab
+      command: mount -a
+
+    - name: Verify the mount
+      command: df -h
+      register: df_output
+      changed_when: false
+
+    - name: Show df output
+      debug:
+        var: df_output.stdout_lines
+
+    - name: Restart NFS service (CentOS 7+)
+      systemd:
+        name: nfs
+        state: restarted
+      when: ansible_facts['distribution_major_version'] | int >= 7
+      ignore_errors: yes
+
+    - name: Restart NFS service (CentOS 6)
+      service:
+        name: nfs
+        state: restarted
+      when: ansible_facts['distribution_major_version'] | int < 7
+      ignore_errors: yes
