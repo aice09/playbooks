@@ -1,0 +1,88 @@
+---
+- name: Check if user {{ user.username }} exists
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ user.username }}"
+  register: user_info
+  ignore_errors: true
+
+- name: Email if user {{ user.username }} already exists
+  mail:
+    subject: "NIS User '{{ user.username }}' Already Exists"
+    to: "{{ email_notify }}"
+    body: "User '{{ user.username }}' already exists on {{ inventory_hostname }}. Skipping creation."
+  when: user_info.found
+
+- name: Debug if user exists
+  debug:
+    msg: "User {{ user.username }} already exists."
+  when: user_info.found
+
+- name: Generate random password for {{ user.username }}
+  set_fact:
+    user_password: "{{ lookup('password', '/dev/null length=12 chars=ascii_letters,digits') }}"
+  when: not user_info.found
+
+- name: Create user {{ user.username }}
+  user:
+    name: "{{ user.username }}"
+    comment: "{{ user.full_name }}"
+    home: "/export/home/{{ user.username }}"
+    create_home: yes
+    shell: /bin/bash
+  when: not user_info.found
+
+- name: Set primary group for {{ user.username }}
+  user:
+    name: "{{ user.username }}"
+    group: "{{ user.primary_group }}"
+  when: not user_info.found
+
+- name: Add to secondary group
+  user:
+    name: "{{ user.username }}"
+    groups: "{{ user.secondary_group }}"
+    append: yes
+  when: not user_info.found
+
+- name: Set password for {{ user.username }}
+  shell: echo "{{ user.username }}:{{ user_password }}" | chpasswd
+  when: not user_info.found
+
+- name: Set ownership on home directory
+  file:
+    path: "/export/home/{{ user.username }}"
+    owner: "{{ user.username }}"
+    group: "{{ user.primary_group }}"
+    recurse: yes
+  when: not user_info.found
+
+- name: Set permission on home directory
+  file:
+    path: "/export/home/{{ user.username }}"
+    mode: '0755'
+    recurse: yes
+  when: not user_info.found
+
+- name: Save new user to list for post-make
+  set_fact:
+    new_users: "{{ new_users | default([]) + [user.username] }}"
+  when: not user_info.found
+
+- name: Email new credentials
+  mail:
+    subject: "New NIS User Created: {{ user.username }}"
+    to: "{{ user.email }}"
+    cc: "{{ email_notify }}"
+    body: |
+      A new NIS user has been created on {{ inventory_hostname }}:
+
+      Username: {{ user.username }}
+      Password: {{ user_password }}
+      Full Name: {{ user.full_name }}
+      Home Directory: /export/home/{{ user.username }}
+      Primary Group: {{ user.primary_group }}
+      Secondary Group: {{ user.secondary_group }}
+
+      Please advise the user to change their password upon first login.
+  when: not user_info.found
