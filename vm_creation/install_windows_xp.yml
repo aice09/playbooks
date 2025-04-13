@@ -1,0 +1,79 @@
+---
+- name: Deploy Windows XP VM on VirtualBox
+  hosts: win_vbox
+  gather_facts: no
+  vars_files:
+    - group_vars/win_vbox.yml
+
+  pre_tasks:
+    - name: Generate unattended answer file (winnt.sif)
+      template:
+        src: templates/winnt.sif.j2
+        dest: ./files/winnt.sif
+      delegate_to: localhost
+
+    - name: Generate .vfd floppy image (with winnt.sif)
+      command: ./scripts/make_floppy.sh
+      args:
+        chdir: "{{ playbook_dir }}"
+      delegate_to: localhost
+
+  tasks:
+    - name: Copy XP ISO from file share
+      win_copy:
+        src: "\\\\phl-vm-file01\\corpfile\\software\\xp.iso"
+        dest: "C:\\Install\\xp.iso"
+        remote_src: yes
+
+    - name: Copy floppy image to Windows
+      win_copy:
+        src: ./files/winnt.vfd
+        dest: "C:\\Install\\winnt.vfd"
+
+    - name: Create XP VM
+      win_command: >
+        VBoxManage createvm --name {{ winxp_hostname }} --ostype WindowsXP --register
+
+    - name: Modify VM settings
+      win_command: >
+        VBoxManage modifyvm {{ winxp_hostname }}
+        --memory 512
+        --acpi on
+        --ioapic on
+        --boot1 dvd
+        --boot2 disk
+        --boot3 none
+        --nic1 nat
+
+    - name: Attach hard disk
+      win_command: >
+        VBoxManage createmedium disk --filename "C:\\VirtualBox VMs\\{{ winxp_hostname }}\\{{ winxp_hostname }}.vdi" --size 10000 --format VDI
+
+    - name: Attach storage controller
+      win_command: >
+        VBoxManage storagectl {{ winxp_hostname }} --name "IDE Controller" --add ide
+
+    - name: Attach virtual hard disk
+      win_command: >
+        VBoxManage storageattach {{ winxp_hostname }}
+        --storagectl "IDE Controller" --port 0 --device 0 --type hdd
+        --medium "C:\\VirtualBox VMs\\{{ winxp_hostname }}\\{{ winxp_hostname }}.vdi"
+
+    - name: Attach XP ISO
+      win_command: >
+        VBoxManage storageattach {{ winxp_hostname }}
+        --storagectl "IDE Controller" --port 1 --device 0 --type dvddrive
+        --medium "C:\\Install\\xp.iso"
+
+    - name: Attach VFD floppy
+      win_command: >
+        VBoxManage setextradata {{ winxp_hostname }} "VBoxInternal/Devices/floppy/0/Config/Path" "C:\\Install\\winnt.vfd"
+
+    - name: Enable bidirectional clipboard and shared folders
+      win_command: >
+        VBoxManage modifyvm {{ winxp_hostname }}
+        --clipboard bidirectional --draganddrop bidirectional
+
+    - name: Start the XP VM
+      win_command: >
+        VBoxManage startvm {{ winxp_hostname }} --type headless
