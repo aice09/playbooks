@@ -1,0 +1,12 @@
+nis_users:
+  - username: "a12345"
+    full_name: "John Doe"
+    email: "john.doe@example.com"
+    primary_group: "Dep1"
+    secondary_group: "a12345"
+
+  - username: "b67890"
+    full_name: "Jane Smith"
+    email: "jane.smith@example.com"
+    primary_group: "Dep2"
+    secondary_group: "b67890"
